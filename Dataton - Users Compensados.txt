@@ -1,0 +1,222 @@
+CREATE TABLE peya-salvador.automated_tables_reports.Users_Compensados AS
+WITH Orders AS (
+SELECT
+    (FORMAT_DATETIME('%Y-%m', o.registered_date)) AS created_month, o.user.id AS user_id_order,
+    COUNT(DISTINCT o.order_id) AS total_confirmed_orders, SUM(o.confirmed_total_amount) AS afv,
+    MAX(o.registered_date) AS ultima_compra, SUM(op.gmv.gmv_vendor) as gmv_gross_without_subsidies,
+FROM `peya-bi-tools-pro.il_core.fact_orders` o
+LEFT JOIN `peya-fraud-and-fintech.group_finance_data.fact_orders_profitability` op
+ON o.order_id = op.order_id AND o.registered_date = op.registered_date
+WHERE (o.registered_date ) >= (DATE('2024-05-01')) AND (o.registered_date ) <= (DATE('2024-07-31'))
+AND (o.country_id ) = 19 AND ((o.restaurant.id ) >= 0 OR (o.restaurant.id ) IS NULL) AND o.order_status = 'CONFIRMED'
+AND o.confirmed_total_amount > 0
+GROUP BY 1,2),
+Behavior AS (
+    select user_id, gender, income, cell_segment, cc_level, segment,
+  AVG(age) AS age, AVG(cant_orders) AS orders, AVG(cantidad_comercios) AS cantidad_comercios, AVG(cantidad_verticales) AS cantidad_verticales, AVG(online_orders) AS online_orders, AVG(cash_orders) AS cash_orders,
+  AVG(ordenes_entregadas) AS ordenes_entregadas, AVG(ordenes_canceladas) AS ordenes_canceladas, AVG(ordenes_peya_market) AS ordenes_peya_market, AVG(ordenes_restaurante) AS ordenes_restaurante, AVG(ordenes_mercado) AS ordenes_mercado,
+  AVG(ordenes_cafe) AS ordenes_cafe, AVG(ordenes_bebidas) AS ordenes_bebidas, AVG(ordenes_entregas) AS ordenes_entregas, AVG(ordenes_shop) AS ordenes_shop, AVG(ordenes_mascotas) AS ordenes_mascotas,
+  AVG(ordenes_desayuno) AS ordenes_desayuno, AVG(ordenes_almuerzo) AS ordenes_almuerzo, AVG(ordenes_tarde) AS ordenes_tarde, AVG(ordenes_cena) AS ordenes_cena, AVG(ordenes_late_night) AS ordenes_late_night, AVG(hora_avg) AS hora_avg,
+  AVG(hora_desv) AS hora_desv, AVG(monto_avg) AS monto_avg, AVG(monto_desv) AS monto_desv, AVG(hold_back_time) AS hold_back_time, AVG(avg_apt) AS avg_apt, AVG(desv_apt) AS desv_apt, AVG(dt_avg) AS dt_avg, AVG(dt_desv) AS dt_desv,
+  CASE
+    WHEN GREATEST(AVG(ordenes_desayuno), AVG(ordenes_almuerzo), AVG(ordenes_tarde), AVG(ordenes_cena), AVG(ordenes_late_night)) = AVG(ordenes_desayuno) THEN 'Desayuno'
+    WHEN GREATEST(AVG(ordenes_desayuno), AVG(ordenes_almuerzo), AVG(ordenes_tarde), AVG(ordenes_cena), AVG(ordenes_late_night)) = AVG(ordenes_almuerzo) THEN 'Almuerzo'
+    WHEN GREATEST(AVG(ordenes_desayuno), AVG(ordenes_almuerzo), AVG(ordenes_tarde), AVG(ordenes_cena), AVG(ordenes_late_night)) = AVG(ordenes_tarde) THEN 'Tarde'
+    WHEN GREATEST(AVG(ordenes_desayuno), AVG(ordenes_almuerzo), AVG(ordenes_tarde), AVG(ordenes_cena), AVG(ordenes_late_night)) = AVG(ordenes_cena) THEN 'Cena'
+    WHEN GREATEST(AVG(ordenes_desayuno), AVG(ordenes_almuerzo), AVG(ordenes_tarde), AVG(ordenes_cena), AVG(ordenes_late_night)) = AVG(ordenes_late_night) THEN 'Late Night'
+  END AS ocasion_fav,
+  CASE
+    WHEN GREATEST(AVG(ordenes_peya_market), AVG(ordenes_restaurante), AVG(ordenes_mercado), AVG(ordenes_cafe), AVG(ordenes_bebidas), AVG(ordenes_entregas), AVG(ordenes_shop)) = AVG(ordenes_peya_market) THEN 'Peya Market'
+    WHEN GREATEST(AVG(ordenes_peya_market), AVG(ordenes_restaurante), AVG(ordenes_mercado), AVG(ordenes_cafe), AVG(ordenes_bebidas), AVG(ordenes_entregas), AVG(ordenes_shop)) = AVG(ordenes_restaurante) THEN 'Restaurante'
+    WHEN GREATEST(AVG(ordenes_peya_market), AVG(ordenes_restaurante), AVG(ordenes_mercado), AVG(ordenes_cafe), AVG(ordenes_bebidas), AVG(ordenes_entregas), AVG(ordenes_shop)) = AVG(ordenes_mercado) THEN 'Mercado'
+    WHEN GREATEST(AVG(ordenes_peya_market), AVG(ordenes_restaurante), AVG(ordenes_mercado), AVG(ordenes_cafe), AVG(ordenes_bebidas), AVG(ordenes_entregas), AVG(ordenes_shop)) = AVG(ordenes_cafe) THEN 'Cafe'
+    WHEN GREATEST(AVG(ordenes_peya_market), AVG(ordenes_restaurante), AVG(ordenes_mercado), AVG(ordenes_cafe), AVG(ordenes_bebidas), AVG(ordenes_entregas), AVG(ordenes_shop)) = AVG(ordenes_bebidas) THEN 'Bebidas'
+    WHEN GREATEST(AVG(ordenes_peya_market), AVG(ordenes_restaurante), AVG(ordenes_mercado), AVG(ordenes_cafe), AVG(ordenes_bebidas), AVG(ordenes_entregas), AVG(ordenes_shop)) = AVG(ordenes_entregas) THEN 'Entregas'
+    WHEN GREATEST(AVG(ordenes_peya_market), AVG(ordenes_restaurante), AVG(ordenes_mercado), AVG(ordenes_cafe), AVG(ordenes_bebidas), AVG(ordenes_entregas), AVG(ordenes_shop)) = AVG(ordenes_shop) THEN 'Shop'
+  END AS vertical_fav,
+  CASE WHEN GREATEST(AVG(cash_orders), AVG(online_orders)) = AVG(cash_orders) THEN 'Cash' ELSE 'Online' END AS pago_fav,
+  from `peya-salvador.automated_tables_reports.order_ml_user`
+  where fecha_mes >= 202405 and fecha_mes <= 202407
+  group by 1,2,3,4,5,6
+), Ciudad AS (
+    SELECT DISTINCT user_id, city_name,
+        ciudad_count,
+        ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ciudad_count DESC) AS rn
+    FROM 
+    (
+        SELECT 
+        DISTINCT user.id AS user_id,
+        city.city_name,
+        COUNT(*) AS ciudad_count
+        FROM `peya-bi-tools-pro.il_core.fact_orders`  AS orders
+        WHERE (orders.registered_date ) >= (DATE('2024-07-01')) AND (orders.registered_date ) <= (DATE('2024-09-30'))
+        GROUP BY 1,2
+    )), Inicio AS (
+        select user_id, DATE(registered_date) AS registered_date
+        from `peya-bi-tools-pro.il_core.dim_user`
+    ),
+RFM AS (
+  SELECT user_id_order, frequency, monetary,
+  DATE_DIFF('2024-08-01', ultima_compra, DAY) AS recency,
+  NTILE(5) OVER (ORDER BY DATE_DIFF('2024-08-01', ultima_compra, DAY) DESC) AS R_score,
+  NTILE(5) OVER (ORDER BY monetary) AS M_score,
+  NTILE(5) OVER (ORDER BY frequency) AS F_score
+  FROM(
+    SELECT DISTINCT o.user_id_order, SUM(o.total_confirmed_orders)/3 AS frequency, SUM(o.afv)/3 AS monetary,
+    MAX(o.ultima_compra) AS ultima_compra
+    FROM Orders o
+    LEFT JOIN Behavior b ON o.user_id_order = b.user_id
+    LEFT JOIN Ciudad c ON o.user_id_order = c.user_id
+    LEFT JOIN Inicio i ON o.user_id_order = i.user_id
+    WHERE b.user_id IS NOT NULL
+    GROUP BY 1)
+), Cluster AS (
+  SELECT user_id_order, R_score, F_score, M_score,
+  CONCAT(R_score, F_score, M_score) AS RFM, FLOOR((F_score + M_score)/2) AS FM_score,
+  CASE 
+      WHEN FLOOR((F_score + M_score)/2) BETWEEN 4 AND 5 AND R_score = 5 THEN 'Champion'
+      WHEN FLOOR((F_score + M_score)/2) BETWEEN 2 AND 3 AND R_score IN (5, 4) THEN 'Potential Loyalists'
+      WHEN FLOOR((F_score + M_score)/2) = 1 AND R_score IN (5, 4) THEN 'New Customer'
+      WHEN FLOOR((F_score + M_score)/2) BETWEEN 4 AND 5 AND R_score IN (3, 4) THEN 'Loyal Customers'
+      WHEN FLOOR((F_score + M_score)/2) BETWEEN 1 AND 3 AND R_score = 3 THEN 'About to Sleep'
+      WHEN FLOOR((F_score + M_score)/2) = 5 AND R_score IN (1, 2) THEN 'Can\'t Lose Them'
+      WHEN FLOOR((F_score + M_score)/2) BETWEEN 3 AND 4 AND R_score IN (1, 2) THEN 'At Risk'
+      WHEN FLOOR((F_score + M_score)/2) BETWEEN 1 AND 2 AND R_score IN (1, 2) THEN 'Hibernating'
+      ELSE 'Unclassified'
+  END AS categoria
+  FROM RFM
+), Users_Categoria AS (
+  SELECT RFM.user_id_order AS id_user_cluster, Cluster.categoria, Behavior.*
+  FROM RFM
+  LEFT JOIN Cluster ON RFM.user_id_order = Cluster.user_id_order
+  LEFT JOIN Behavior ON RFM.user_id_order = Behavior.user_id
+), User_base as (
+select distinct user_id AS user_id_order, original_order_id, max (case when refund_order =1 and compensated_order=1 then "Refund & Compensation" when refund_order=1 and compensated_order=0 then "Refund" else "Compensation" end) as order_type, sum(refund_amount) refund_amount, sum(compensated_amount) compensation_amount, max(original_order_date) fecha 
+from peya-salvador.automated_tables_reports.Refunds_compensations a
+where a.user_id is not null
+and original_order_date>="2024-07-01" and original_order_date<="2024-07-31"
+group by 1,2),
+user_metrics_aft as (
+     SELECT
+user_id,
+avg(AFV) AS AFV,
+count(distinct confirmed_orders) confirmed_orders,
+avg(orders_df_free) orders_df_free,
+avg(Q_Vouchers) Q_Vouchers,
+avg(gmv_gross_without_subsidies) gmv_gross_without_subsidies,
+avg(gfv_gross_without_subsidies) gfv_gross_without_subsidies,
+avg(commission_revenue_without_subsidizes) commission_revenue_without_subsidizes,
+avg(delivery_fee) delivery_fee,
+avg(service_fee)service_fee,
+avg(take_in)take_in,
+avg(delivery_cpo) delivery_cpo,
+avg(gpo) gpo,
+avg(basket_incentives)basket_incentives,
+avg(CAC_basket_incentives)CAC_basket_incentives,
+avg(CRC_basket_incentives) CRC_basket_incentives,
+avg(gp_fl)gp_fl,
+avg(delivery_time) DT,
+avg(to_customer_time)TO_CUSTOMER_TIME,
+avg(to_vendor_time)TO_VENDOR_TIME,
+avg(at_vendor_time)AT_VENDOR_TIME,
+avg(AVTc)AVTC,
+avg(APT)APT,
+AVG(EPT)EPT,
+FROM
+(
+SELECT
+o.order_id,
+DATE_TRUNC(op.registered_date,month) AS date_month,
+op.registered_date as date_date,
+ CASE
+        WHEN EXTRACT(DAY FROM op.registered_date) BETWEEN 15 AND 22 THEN 'Días de fecha de pago'
+        WHEN EXTRACT(DAY FROM op.registered_date) IN (1, 2, 3, 4, 5, 6, 30, 31) THEN 'Días de fecha de pago'
+        ELSE 'Días de rezago'
+    END AS payment_day_classification,
+p.partner_name as restaurant_name,
+p.partner_id as restaurant_id,
+Case when p.franchise.franchise_name is NULL THEN p.partner_name else p.franchise.franchise_name end as Franchise_or_Partner,
+sacc.Long_Tail_Segmentation as partner_segmentation,
+c.city_name,
+p.account_owner,
+op.partner.vertical_type,
+op.delivery.with_logistics,
+op.delivery.delivery_type,
+CASE
+  WHEN op.partner.vertical_type IN ('Coffee', 'Concept', 'Kitchen', 'Restaurant') THEN 'Food'
+  WHEN op.partner.vertical_type IN ('Courier', 'Courier Business') THEN 'Courier'
+  WHEN op.partner.vertical_type IN ('Drinks', 'Kiosks', 'Market', 'Pets','Pharmacy', 'Shop') THEN 'Local Stores'
+  ELSE 'D-Mart'
+END as vertical_type_2,
+CASE
+  WHEN op.partner.vertical_type IN ('Courier', 'Courier Business', 'D-Mart') THEN partner.vertical_type
+  WHEN sacc.Key_Account_Sub_Category IS NULL THEN CONCAT ("Long Tail"," ", COALESCE(SUBSTRING(sacc.Long_Tail_Segmentation,1,1),"?") )
+  ELSE sacc.Key_Account_Sub_Category
+END Key_Account_Sub_Category,
+AVG(confirmed_gfv_with_discount_paid_by_company) as AFV,
+op.updated_at,
+CASE WHEN op.order_status = "CONFIRMED" THEN op.order_id END as confirmed_orders,
+CASE WHEN op.order_status = "CONFIRMED" AND o.shipping_amount_no_discount = 0 THEN 1 ELSE 0 END AS orders_df_free,
+CASE WHEN o.confirmed_order_with_voucher_discount=1 THEN 1 ELSE 0 END as Q_Vouchers,
+op.gmv.gmv_vendor as gmv_gross_without_subsidies,
+op.gmv.gfv_vendor as gfv_gross_without_subsidies,
+op.commission.commission as commission_revenue_without_subsidizes,
+delivery_fee_user as delivery_fee,
+service_fee as service_fee,
+take_in as take_in,
+rider_cost.rider_cost as delivery_cpo,
+op.gpo.gpo as gpo,
+basket_incentives as basket_incentives,
+0 as CAC_Basket_Incentives ,
+0 as CRC_Basket_Incentives ,
+op.gpo.gpo_fl as gp_fl,
+ CASE WHEN p.partner_name LIKE ('%Pupus%') AND (p.main_cousine_category_name like 'Comida Mexi%' OR p.main_cousine_category_name like 'Parrill%') then
+    'Pupusas'
+    WHEN  p.partner_name LIKE ('%Chory%') AND p.main_cousine_category_name like 'Parrill%' THEN 'Hot dogs'
+    else p.main_cousine_category_name end categoria,
+(ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( fact_logistic_orders__deliveries.timings.actual_delivery_time/60  ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   fact_logistic_orders__deliveries.timings.actual_delivery_time/60   IS NOT NULL THEN  fact_logistic_orders__deliveries.delivery_sk  ELSE NULL END) AS FLOAT64), 0.0)) AS delivery_time,
+    (ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( fact_logistic_orders__deliveries.timings.to_customer_time/60   ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   fact_logistic_orders__deliveries.timings.to_customer_time/60    IS NOT NULL THEN  fact_logistic_orders__deliveries.delivery_sk  ELSE NULL END) AS FLOAT64), 0.0)) AS to_customer_time,
+    (ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( fact_logistic_orders__deliveries.timings.to_vendor_time/60   ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   fact_logistic_orders__deliveries.timings.to_vendor_time/60    IS NOT NULL THEN  fact_logistic_orders__deliveries.delivery_sk  ELSE NULL END) AS FLOAT64), 0.0)) AS to_vendor_time,
+    (ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( fact_logistic_orders__deliveries.timings.at_vendor_time /60  ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   fact_logistic_orders__deliveries.timings.at_vendor_time /60   IS NOT NULL THEN  fact_logistic_orders__deliveries.delivery_sk  ELSE NULL END) AS FLOAT64), 0.0)) AS at_vendor_time,
+    AVG(fact_logistic_orders__deliveries.timings.at_vendor_time_cleaned/60 ) AS AVTc,
+    AVG(fact_logistic_orders__deliveries.timings.assumed_actual_preparation_time*1.000/60 ) AS APT,
+    (ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( logistic_orders.estimated_prep_time/60 ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( logistic_orders.order_sk   AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( logistic_orders.order_sk   AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( logistic_orders.order_sk   AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( logistic_orders.order_sk   AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   logistic_orders.estimated_prep_time/60  IS NOT NULL THEN  logistic_orders.order_sk   ELSE NULL END) AS FLOAT64), 0.0)) AS EPT,
+row_number() over (partition BY op.registered_date, op.order_id ORDER BY op.updated_at DESC ) rnk,
+op.order_status,
+logistic_orders.zone.zone_name,
+o.user.id as user_id
+FROM `peya-bi-tools-pro.il_core.fact_orders`o  
+LEFT JOIN `peya-fraud-and-fintech.group_finance_data.fact_orders_profitability` op
+ON o.order_id = op.order_id
+AND o.registered_date = op.registered_date
+LEFT JOIN `peya-bi-tools-pro.il_logistics.fact_logistic_orders` AS logistic_orders ON o.order_id = logistic_orders.peya_order_id AND o.registered_date = logistic_orders.created_date_local
+LEFT JOIN UNNEST([logistic_orders.zone]) AS fact_logistic_orders__zone
+LEFT JOIN UNNEST (logistic_orders.deliveries) as fact_logistic_orders__deliveries
+LEFT JOIN `peya-bi-tools-pro.il_core.dim_partner`p
+ON o.restaurant.id = p.partner_id
+LEFT JOIN `peya-bi-tools-pro.il_core.dim_city` c
+ON coalesce(o.address.area.city.id, o.city.city_id)=c.city_id
+LEFT JOIN `peya-bi-tools-pro.il_core.dim_historical_partners` hp
+ON hp.restaurant_id = o.restaurant.id
+AND date(hp.full_date) = DATE_TRUNC(o.registered_date,month)
+LEFT JOIN `peya-bi-tools-pro.il_core.dim_billing_info` dbi
+ON p.billinginfo.billing_info_id= dbi.billing_info_id
+LEFT JOIN `peya-data-origins-pro.cl_salesforce.account` sacc
+ON sacc.grid = p.salesforce_id
+left join user_base on  user_base.user_id_order=o.user.id
+WHERE o.registered_date between fecha and fecha+30
+AND op.country_id = 19
+and o.registered_date >="2024-08-01"
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33, op.order_id, p.main_cousine_category_name,op.order_status, logistic_orders.zone.zone_name, o.user.id
+)where rnk = 1
+GROUP BY 1
+), RefundsCompensations AS (
+  select a.*, b.afv afv_aft , b.gpo gpo_aft, b.service_fee SF_Aft, b.delivery_fee DF_Aft, b.gp_fl gp_fl_aft, b.take_in take_in_aft, b.confirmed_orders order_aft,
+  ticket ticket_bef, c.gpo gpo_bef, c.gp_fl gp_fl_bef, c.frecuencia orders_bef, c.service_fee SF_BEF, C.DF DF_BEF
+  from user_base a 
+  left join user_metrics_aft b on a .user_id_order=b.user_id
+  left join peya-salvador.automated_tables_reports.User_metrics_bef c on c.user_id=a.user_id_order
+)
+SELECT *
+FROM RefundsCompensations rc
+LEFT JOIN Users_Categoria u ON rc.user_id_order = u.id_user_cluster

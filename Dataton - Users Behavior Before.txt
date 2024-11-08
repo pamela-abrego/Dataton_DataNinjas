@@ -1,0 +1,142 @@
+
+select distinct user_id, original_order_date
+from peya-salvador.automated_tables_reports.Refunds_compensations 
+where user_id is not null;
+
+delete from peya-salvador.automated_tables_reports.User_metrics_bef
+where true;
+
+insert into peya-salvador.automated_tables_reports.User_metrics_bef
+with user_list as (
+select distinct user_id, max(original_order_date)
+from peya-salvador.automated_tables_reports.Refunds_compensations 
+where user_id is not null
+group by 1),
+subquery2 as (
+     SELECT
+user_id,
+FORMAT_DATE('%Y-%m',date_date) as month,
+avg(AFV) AS AFV,
+count(distinct confirmed_orders) confirmed_orders,
+avg(orders_df_free) orders_df_free,
+avg(Q_Vouchers) Q_Vouchers,
+avg(gmv_gross_without_subsidies) gmv_gross_without_subsidies,
+avg(gfv_gross_without_subsidies) gfv_gross_without_subsidies,
+avg(commission_revenue_without_subsidizes) commission_revenue_without_subsidizes,
+avg(delivery_fee) delivery_fee,
+avg(service_fee)service_fee,
+avg(take_in)take_in,
+avg(delivery_cpo) delivery_cpo,
+avg(gpo) gpo,
+avg(basket_incentives)basket_incentives,
+avg(CAC_basket_incentives)CAC_basket_incentives,
+avg(CRC_basket_incentives) CRC_basket_incentives,
+avg(gp_fl)gp_fl,
+avg(delivery_time) DT,
+avg(to_customer_time)TO_CUSTOMER_TIME,
+avg(to_vendor_time)TO_VENDOR_TIME,
+avg(at_vendor_time)AT_VENDOR_TIME,
+avg(AVTc)AVTC,
+avg(APT)APT,
+AVG(EPT)EPT,
+FROM
+(
+SELECT
+o.order_id,
+DATE_TRUNC(op.registered_date,month) AS date_month,
+op.registered_date as date_date,
+ CASE
+        WHEN EXTRACT(DAY FROM op.registered_date) BETWEEN 15 AND 22 THEN 'Días de fecha de pago'
+        WHEN EXTRACT(DAY FROM op.registered_date) IN (1, 2, 3, 4, 5, 6, 30, 31) THEN 'Días de fecha de pago'
+        ELSE 'Días de rezago'
+    END AS payment_day_classification,
+p.partner_name as restaurant_name,
+p.partner_id as restaurant_id,
+Case when p.franchise.franchise_name is NULL THEN p.partner_name else p.franchise.franchise_name end as Franchise_or_Partner,
+sacc.Long_Tail_Segmentation as partner_segmentation,
+c.city_name,
+p.account_owner,
+op.partner.vertical_type,
+op.delivery.with_logistics,
+op.delivery.delivery_type,
+CASE
+  WHEN op.partner.vertical_type IN ('Coffee', 'Concept', 'Kitchen', 'Restaurant') THEN 'Food'
+  WHEN op.partner.vertical_type IN ('Courier', 'Courier Business') THEN 'Courier'
+  WHEN op.partner.vertical_type IN ('Drinks', 'Kiosks', 'Market', 'Pets','Pharmacy', 'Shop') THEN 'Local Stores'
+  ELSE 'D-Mart'
+END as vertical_type_2,
+CASE
+  WHEN op.partner.vertical_type IN ('Courier', 'Courier Business', 'D-Mart') THEN partner.vertical_type
+  WHEN sacc.Key_Account_Sub_Category IS NULL THEN CONCAT ("Long Tail"," ", COALESCE(SUBSTRING(sacc.Long_Tail_Segmentation,1,1),"?") )
+  ELSE sacc.Key_Account_Sub_Category
+END Key_Account_Sub_Category,
+AVG(confirmed_gfv_with_discount_paid_by_company) as AFV,
+op.updated_at,
+CASE WHEN op.order_status = "CONFIRMED" THEN op.order_id END as confirmed_orders,
+CASE WHEN op.order_status = "CONFIRMED" AND o.shipping_amount_no_discount = 0 THEN 1 ELSE 0 END AS orders_df_free,
+CASE WHEN o.confirmed_order_with_voucher_discount=1 THEN 1 ELSE 0 END as Q_Vouchers,
+op.gmv.gmv_vendor as gmv_gross_without_subsidies,
+op.gmv.gfv_vendor as gfv_gross_without_subsidies,
+op.commission.commission as commission_revenue_without_subsidizes,
+delivery_fee_user as delivery_fee,
+service_fee as service_fee,
+take_in as take_in,
+rider_cost.rider_cost as delivery_cpo,
+op.gpo.gpo as gpo,
+basket_incentives as basket_incentives,
+0 as CAC_Basket_Incentives ,
+0 as CRC_Basket_Incentives ,
+op.gpo.gpo_fl as gp_fl,
+ CASE WHEN p.partner_name LIKE ('%Pupus%') AND (p.main_cousine_category_name like 'Comida Mexi%' OR p.main_cousine_category_name like 'Parrill%') then
+    'Pupusas'
+    WHEN  p.partner_name LIKE ('%Chory%') AND p.main_cousine_category_name like 'Parrill%' THEN 'Hot dogs'
+    else p.main_cousine_category_name end categoria,
+(ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( fact_logistic_orders__deliveries.timings.actual_delivery_time/60  ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   fact_logistic_orders__deliveries.timings.actual_delivery_time/60   IS NOT NULL THEN  fact_logistic_orders__deliveries.delivery_sk  ELSE NULL END) AS FLOAT64), 0.0)) AS delivery_time,
+    (ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( fact_logistic_orders__deliveries.timings.to_customer_time/60   ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   fact_logistic_orders__deliveries.timings.to_customer_time/60    IS NOT NULL THEN  fact_logistic_orders__deliveries.delivery_sk  ELSE NULL END) AS FLOAT64), 0.0)) AS to_customer_time,
+    (ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( fact_logistic_orders__deliveries.timings.to_vendor_time/60   ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   fact_logistic_orders__deliveries.timings.to_vendor_time/60    IS NOT NULL THEN  fact_logistic_orders__deliveries.delivery_sk  ELSE NULL END) AS FLOAT64), 0.0)) AS to_vendor_time,
+    (ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( fact_logistic_orders__deliveries.timings.at_vendor_time /60  ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( fact_logistic_orders__deliveries.delivery_sk  AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   fact_logistic_orders__deliveries.timings.at_vendor_time /60   IS NOT NULL THEN  fact_logistic_orders__deliveries.delivery_sk  ELSE NULL END) AS FLOAT64), 0.0)) AS at_vendor_time,
+    AVG(fact_logistic_orders__deliveries.timings.at_vendor_time_cleaned/60 ) AS AVTc,
+    AVG(fact_logistic_orders__deliveries.timings.assumed_actual_preparation_time*1.000/60 ) AS APT,
+    (ROUND(COALESCE(CAST( ( SUM(DISTINCT (CAST(ROUND(COALESCE( logistic_orders.estimated_prep_time/60 ,0)*(1/1000*1.0), 9) AS NUMERIC) + (cast(cast(concat('0x', substr(to_hex(md5(CAST( logistic_orders.order_sk   AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( logistic_orders.order_sk   AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001 )) - SUM(DISTINCT (cast(cast(concat('0x', substr(to_hex(md5(CAST( logistic_orders.order_sk   AS STRING))), 1, 15)) as int64) as numeric) * 4294967296 + cast(cast(concat('0x', substr(to_hex(md5(CAST( logistic_orders.order_sk   AS STRING))), 16, 8)) as int64) as numeric)) * 0.000000001) )  / (1/1000*1.0) AS NUMERIC), 0), 6) / NULLIF(CAST(COUNT(DISTINCT CASE WHEN   logistic_orders.estimated_prep_time/60  IS NOT NULL THEN  logistic_orders.order_sk   ELSE NULL END) AS FLOAT64), 0.0)) AS EPT,
+row_number() over (partition BY op.registered_date, op.order_id ORDER BY op.updated_at DESC ) rnk,
+op.order_status,
+logistic_orders.zone.zone_name,
+o.user.id as user_id
+FROM `peya-bi-tools-pro.il_core.fact_orders`o  
+LEFT JOIN `peya-fraud-and-fintech.group_finance_data.fact_orders_profitability` op
+ON o.order_id = op.order_id
+AND o.registered_date = op.registered_date
+LEFT JOIN `peya-bi-tools-pro.il_logistics.fact_logistic_orders` AS logistic_orders ON o.order_id = logistic_orders.peya_order_id AND o.registered_date = logistic_orders.created_date_local
+LEFT JOIN UNNEST([logistic_orders.zone]) AS fact_logistic_orders__zone
+LEFT JOIN UNNEST (logistic_orders.deliveries) as fact_logistic_orders__deliveries
+LEFT JOIN `peya-bi-tools-pro.il_core.dim_partner`p
+ON o.restaurant.id = p.partner_id
+LEFT JOIN `peya-bi-tools-pro.il_core.dim_city` c
+ON coalesce(o.address.area.city.id, o.city.city_id)=c.city_id
+LEFT JOIN `peya-bi-tools-pro.il_core.dim_historical_partners` hp
+ON hp.restaurant_id = o.restaurant.id
+AND date(hp.full_date) = DATE_TRUNC(o.registered_date,month)
+LEFT JOIN `peya-bi-tools-pro.il_core.dim_billing_info` dbi
+ON p.billinginfo.billing_info_id= dbi.billing_info_id
+LEFT JOIN `peya-data-origins-pro.cl_salesforce.account` sacc
+ON sacc.grid = p.salesforce_id
+WHERE o.registered_date between "2022-01-01" and "2024-06-30"
+AND op.country_id = 19
+--AND op.order_status = "CONFIRMED"
+--and op.order_id =1088716213
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33, op.order_id, p.main_cousine_category_name,op.order_status, logistic_orders.zone.zone_name, o.user.id
+)where rnk = 1
+GROUP BY 1,2
+   )
+
+select user_id, avg(afv) Ticket, avg(confirmed_orders) frecuencia, avg(orders_df_free) df_free, avg(service_fee) service_fee, avg(delivery_fee) df,  avg(take_in) take_in, avg(gpo) gpo, avg(gp_fl) gp_fl
+from subquery2
+group by 1;
+
+
+
+
+
+
+
+
